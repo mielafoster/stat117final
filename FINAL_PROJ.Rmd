@@ -1,0 +1,589 @@
+---
+title: "FINAL_PROJ"
+author: "Miela Foster"
+date: "4/19/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, cache = T}
+#load in data
+load("pCR_binary.RData")
+
+#evaluate the objects
+
+#18 studies ( some have NAs)
+str(pCR) 
+
+#different number of participants, some have no classifications
+str(pam50_pCR)
+str(XX_pCR)
+
+#this is their baseline model
+library(ROCR)
+baseline_m = glm(pCR[[6]] ~ pam50_pCR[[6]], family=binomial(link="logit"))
+baseline_AUC = performance(prediction(fitted(baseline_m), baseline_m$y), "auc")@y.values[[1]]
+
+#relatively high AUC value , we will always eval based on AUC --> group 6
+baseline_AUC
+
+XX_pCR
+pam50_pCR
+```
+
+```{r}
+#first start with cleaning up the data 
+#remove first 3 studies and last 2 as well
+
+XX_pCR_amend = XX_pCR[-c(1,2,3,17,18)]
+length(XX_pCR_amend)
+
+pCR_amend = pCR[-c(1,2,3,17,18)]
+length(pCR_amend)
+```
+
+```{r, cache = T}
+#first separate training from testing set , recall train 80%, 
+#10 training, 3 testing
+#sample without replacement
+training_num = sample(1:13, 10, replace=FALSE)
+training_num
+
+training_pCR_XX_amend = XX_pCR_amend[-c(2,6,10)]
+training_pCR_amend = pCR_amend[-c(2,6,10)]
+length(training_pCR_amend)
+length(training_pCR_XX_amend)
+  
+testing_pCR_XX_amend = XX_pCR_amend[-c(8, 5, 13,  3,  9,  6,  1,  7,  4, 11)] 
+testing_pCR_amend = pCR_amend[-c(8, 5, 13,  3,  9,  6,  1,  7,  4, 11)] 
+length(testing_pCR_amend)
+length(testing_pCR_XX_amend)
+testing_pCR_XX_amend
+```
+
+```{r}
+#now we can perform some EDA on the models for raw pcr
+#HISTOGRAMS FOR EACH STUDY
+par(mfrow = c(2,5))
+hist(training_pCR_amend[[1]])
+hist(training_pCR_amend[[2]])
+hist(training_pCR_amend[[3]])
+hist(training_pCR_amend[[4]])
+hist(training_pCR_amend[[5]])
+hist(training_pCR_amend[[6]])
+hist(training_pCR_amend[[7]])
+hist(training_pCR_amend[[8]])
+hist(training_pCR_amend[[9]])
+hist(training_pCR_amend[[10]])
+
+mean_1 = mean(training_pCR_amend[[1]])
+mean_2 =mean(training_pCR_amend[[2]])
+mean_3 =mean(training_pCR_amend[[3]])
+mean_4 =mean(training_pCR_amend[[4]])
+mean_5 =mean(training_pCR_amend[[5]])
+mean_6 =mean(training_pCR_amend[[6]])
+mean_7 =mean(training_pCR_amend[[7]])
+mean_8 =mean(training_pCR_amend[[8]])
+mean_9 =mean(training_pCR_amend[[9]])
+mean_10 =mean(training_pCR_amend[[10]])
+
+mean_avg_value = mean(c(mean_1,mean_2,mean_3,mean_4,mean_5,mean_6,mean_7,mean_8,mean_9,mean_10), na.rm = TRUE)
+max_avg_value = max(c(mean_1,mean_2,mean_3,mean_4,mean_5,mean_6,mean_7,mean_8,mean_9,mean_10), na.rm = TRUE)
+min_avg_value = min(c(mean_1,mean_2,mean_3,mean_4,mean_5,mean_6,mean_7,mean_8,mean_9,mean_10), na.rm = TRUE)
+
+prop.table(table(training_pCR_amend[[1]]))
+prop.table(table(training_pCR_amend[[2]]))
+prop.table(table(training_pCR_amend[[3]]))
+prop.table(table(training_pCR_amend[[4]]))
+prop.table(table(training_pCR_amend[[5]]))
+prop.table(table(training_pCR_amend[[6]]))
+prop.table(table(training_pCR_amend[[7]]))
+prop.table(table(training_pCR_amend[[8]]))
+prop.table(table(training_pCR_amend[[9]]))
+prop.table(table(training_pCR_amend[[10]]))
+
+#Note always a higher propotion of 0 , highest proportion is in study 6 (100%) and 9 (87%)
+#lowest proportion is in study 10 0.6481481 and 7
+#lets now investigate the gene expression and see where it matches
+```
+
+```{r}
+#further investgate studies 6 and 9 , 10
+max(training_pCR_XX_amend[[9]])
+min(training_pCR_XX_amend[[9]])
+mean(training_pCR_XX_amend[[9]])
+
+max(training_pCR_XX_amend[[6]])
+min(training_pCR_XX_amend[[6]])
+mean(training_pCR_XX_amend[[6]])
+
+max(training_pCR_XX_amend[[10]])
+min(training_pCR_XX_amend[[10]])
+mean(training_pCR_XX_amend[[10]])
+
+max(training_pCR_XX_amend[[7]])
+min(training_pCR_XX_amend[[7]])
+mean(training_pCR_XX_amend[[7]])
+
+#first evaluation set
+binary_eval_1 = training_pCR_XX_amend[[7]]
+binary_eval_1_zero <- binary_eval_1[,c(1,2,4,6,7,8,11,13, 14, 15, 16,17)]
+binary_eval_1_one <- binary_eval_1[,c(3,5,9,10,12)]
+
+#second evaluation set
+binary_eval_2 = training_pCR_XX_amend[[9]]
+binary_eval_2_zero <- binary_eval_2[,c(1,2,3,4,5,6,7,8,9,11,13,14,15,16)]
+binary_eval_2_one <- binary_eval_2[,c(10,12)]
+
+#evaluate sumamry summary stats
+par(mfrow = c(2,2))
+hist(binary_eval_1_zero, main= "Evaluation Set 1 Patient Outcome of Zero")
+hist(binary_eval_1_one, main= "Evaluation Set 1 Patient Outcome of One")
+hist(binary_eval_2_zero, main= "Evaluation Set 2 Patient Outcome of Zero")
+hist(binary_eval_2_one, main= "Evaluation Set 2 Patient Outcome of One")
+
+#no intersting results , its very uncelar now I need to condense the data sete
+  
+```
+
+```{r}
+#evaluate corelations in those two evaluation sets
+require("CCA")
+cca_zeros = cc(binary_eval_1_zero, binary_eval_2_zero)
+cca_ones = cc(binary_eval_1_one, binary_eval_2_one)
+cca_mix_1 = cc(binary_eval_1_one, binary_eval_2_zero)
+cca_mix_2 = cc(binary_eval_1_zero, binary_eval_2_one)
+
+
+print(cca_zeros$cor)
+print(cca_ones$cor)
+print(cca_mix_1$cor)
+print(cca_mix_2$cor)
+
+#rn data is super related, esp in the studies
+#maybe try stratified across studies, and also dimension reduction sense most of the data is being cpatured in that first dimension 
+cca_study7 = cc(binary_eval_1_zero, binary_eval_1_one)
+print(cca_study7$cor)
+
+cca_study9 = cc(binary_eval_2_zero, binary_eval_2_one)
+print(cca_study9$cor)
+
+#outcomes are super related --> try some sort of feature extraction 
+
+
+
+```
+
+```{r}
+#try kernel PCA and PCA because of all positive data 
+require("MASS")
+require(kernlab)
+require(ROCR)
+cor(training_pCR_XX_amend[[7]])
+#high correlations between people
+
+
+
+```
+
+```{r}
+library(switchBox)
+
+#training datas aganist each test set
+k_tsp_class=SWAP.KTSP.Train(training_pCR_XX_amend[[7]], as.factor(training_pCR_amend[[7]]))
+print(k_tsp_class$TSPs)
+
+tsp_result = SWAP.GetKTSP.Result(k_tsp_class, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result$stats["auc"]
+
+tsp_result_2 = SWAP.GetKTSP.Result(k_tsp_class, testing_pCR_XX_amend[[2]], as.factor(testing_pCR_amend[[2]]))
+tsp_result_2$stats["auc"]
+
+tsp_result_3 = SWAP.GetKTSP.Result(k_tsp_class, testing_pCR_XX_amend[[3]], as.factor(testing_pCR_amend[[3]]))
+tsp_result_3$stats["auc"]
+
+
+#training datas aganist other test set
+k_tsp_class_9=SWAP.KTSP.Train(training_pCR_XX_amend[[9]], as.factor(training_pCR_amend[[9]]))
+print(k_tsp_class$TSPs)
+
+tsp_result_9 = SWAP.GetKTSP.Result(k_tsp_class_9, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_9$stats["auc"]
+
+tsp_result_2_9 = SWAP.GetKTSP.Result(k_tsp_class_9, testing_pCR_XX_amend[[2]], as.factor(testing_pCR_amend[[2]]))
+tsp_result_2_9$stats["auc"]
+
+tsp_result_3_9 = SWAP.GetKTSP.Result(k_tsp_class_9, testing_pCR_XX_amend[[3]], as.factor(testing_pCR_amend[[3]]))
+tsp_result_3_9$stats["auc"]
+
+```
+
+```{r}
+#dimension reduction tehcniques
+cca_study_compare_9_3 = cc(training_pCR_XX_amend[[9]] ,testing_pCR_XX_amend[[3]])
+print(cca_study_compare_9_3$cor)
+dim(training_pCR_XX_amend[[1]])
+dim(training_pCR_XX_amend[[2]])
+dim(training_pCR_XX_amend[[3]])
+dim(training_pCR_XX_amend[[4]])
+dim(training_pCR_XX_amend[[5]])
+dim(training_pCR_XX_amend[[6]])
+dim(training_pCR_XX_amend[[7]])
+dim(training_pCR_XX_amend[[8]])
+dim(training_pCR_XX_amend[[9]])
+dim(training_pCR_XX_amend[[10]])
+
+dim(testing_pCR_XX_amend[[3]])
+dim(testing_pCR_XX_amend[[2]])
+dim(testing_pCR_XX_amend[[1]])
+
+
+#study 1 and test 3
+#study 9 and test 1
+```
+
+
+```{r}
+#study 10 test 2
+#studdy 7 and test 1
+```
+
+
+```{r}
+k_tsp_class_1=SWAP.KTSP.Train(training_pCR_XX_amend[[1]], as.factor(training_pCR_amend[[1]]))
+print(k_tsp_class_1$TSPs)
+
+k_tsp_class_9=SWAP.KTSP.Train(training_pCR_XX_amend[[9]], as.factor(training_pCR_amend[[9]]))
+print(k_tsp_class_9$TSPs)
+
+k_tsp_class_10=SWAP.KTSP.Train(training_pCR_XX_amend[[10]], as.factor(training_pCR_amend[[10]]))
+print(k_tsp_class_10$TSPs)
+
+k_tsp_class_7=SWAP.KTSP.Train(training_pCR_XX_amend[[7]], as.factor(training_pCR_amend[[7]]))
+print(k_tsp_class_7$TSPs)
+
+
+tsp_result_1 = SWAP.GetKTSP.Result(k_tsp_class_1, testing_pCR_XX_amend[[3]], as.factor(testing_pCR_amend[[3]]))
+tsp_result_1$stats["auc"]
+
+tsp_result_9 = SWAP.GetKTSP.Result(k_tsp_class_9, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_9$stats["auc"]
+
+tsp_result_10 = SWAP.GetKTSP.Result(k_tsp_class_10, testing_pCR_XX_amend[[2]], as.factor(testing_pCR_amend[[2]]))
+tsp_result_10$stats["auc"]
+#currentlty the best ersults
+
+
+tsp_result_7 = SWAP.GetKTSP.Result(k_tsp_class_7, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_7$stats["auc"]
+
+```
+
+```{r}
+#kmeans clustering
+fit_1 <- kmeans(training_pCR_XX_amend[[1]], 5) # 5 cluster solution
+# get cluster means 
+aggregate(training_pCR_XX_amend[[1]],by=list(fit_1$cluster),FUN=mean)
+# append cluster assignment
+mydata_1 <- data.frame(training_pCR_XX_amend[[1]], fit_1$cluster)
+
+
+fit_7 <- kmeans(training_pCR_XX_amend[[7]], 5) # 5 cluster solution
+# get cluster means 
+aggregate(training_pCR_XX_amend[[7]],by=list(fit_7$cluster),FUN=mean)
+# append cluster assignment
+mydata_7 <- data.frame(training_pCR_XX_amend[[7]], fit_7$cluster)
+
+#kmeans clustering
+fit_9 <- kmeans(training_pCR_XX_amend[[9]], 5) # 5 cluster solution
+# get cluster means 
+aggregate(training_pCR_XX_amend[[9]],by=list(fit_9$cluster),FUN=mean)
+# append cluster assignment
+mydata_9 <- data.frame(training_pCR_XX_amend[[9]], fit_9$cluster)
+
+#kmeans clustering
+fit_10 <- kmeans(training_pCR_XX_amend[[10]], 5) # 5 cluster solution
+# get cluster means 
+aggregate(training_pCR_XX_amend[[10]],by=list(fit_10$cluster),FUN=mean)
+# append cluster assignment
+mydata_10 <- data.frame(training_pCR_XX_amend[[10]], fit_10$cluster)
+```
+
+```{r}
+
+#study 1 and test set #3
+
+#1
+mydata_1_append = subset(mydata_1, mydata_1$fit_1.cluster == 1)
+mydata_1_append = mydata_1_append[,-29]
+mydata_1_append = as.matrix(mydata_1_append)
+binary1 = training_pCR_amend[[1]]
+length(binary1)
+
+typeof(training_pCR_XX_amend[[10]])
+
+tsp_cluster_1_1=SWAP.KTSP.Train(mydata_1_append, as.factor(binary1))
+print(tsp_cluster_1_1$TSPs)
+
+tsp_result_cluster_1_1 = SWAP.GetKTSP.Result(tsp_cluster_1_1, testing_pCR_XX_amend[[3]], as.factor(testing_pCR_amend[[3]]))
+tsp_result_cluster_1_1$stats["auc"]
+
+
+#2
+mydata_1_append_2 = subset(mydata_1, mydata_1$fit_1.cluster == 2)
+mydata_1_append_2 = mydata_1_append_2[,-29]
+mydata_1_append_2 = as.matrix(mydata_1_append_2)
+binary1 = training_pCR_amend[[1]]
+length(binary1)
+
+
+tsp_cluster_1_2=SWAP.KTSP.Train(mydata_1_append_2, as.factor(binary1),krange=c(6) )
+print(tsp_cluster_1_2$TSPs)
+
+tsp_result_cluster_1_2 = SWAP.GetKTSP.Result(tsp_cluster_1_2, testing_pCR_XX_amend[[3]], as.factor(testing_pCR_amend[[3]]))
+tsp_result_cluster_1_2$stats["auc"]
+
+#3 (best!!!)
+mydata_1_append_3 = subset(mydata_1, mydata_1$fit_1.cluster == 3)
+mydata_1_append_3 = mydata_1_append_3[,-29]
+mydata_1_append_3 = as.matrix(mydata_1_append_3)
+binary1 = training_pCR_amend[[1]]
+length(binary1)
+
+
+tsp_cluster_1_3=SWAP.KTSP.Train(mydata_1_append_3, as.factor(binary1),krange=c(6) )
+print(tsp_cluster_1_3$TSPs)
+
+tsp_result_cluster_1_3 = SWAP.GetKTSP.Result(tsp_cluster_1_3, testing_pCR_XX_amend[[3]], as.factor(testing_pCR_amend[[3]]))
+tsp_result_cluster_1_3$stats["auc"]
+
+#4
+mydata_1_append_4 = subset(mydata_1, mydata_1$fit_1.cluster == 4)
+mydata_1_append_4 = mydata_1_append_4[,-29]
+mydata_1_append_4 = as.matrix(mydata_1_append_4)
+binary1 = training_pCR_amend[[1]]
+length(binary1)
+
+
+tsp_cluster_1_4=SWAP.KTSP.Train(mydata_1_append_4, as.factor(binary1),krange=c(6) )
+print(tsp_cluster_1_4$TSPs)
+
+tsp_result_cluster_1_4 = SWAP.GetKTSP.Result(tsp_cluster_1_4, testing_pCR_XX_amend[[3]], as.factor(testing_pCR_amend[[3]]))
+tsp_result_cluster_1_4$stats["auc"]
+
+#5
+mydata_1_append_5 = subset(mydata_1, mydata_1$fit_1.cluster == 5)
+mydata_1_append_5 = mydata_1_append_5[,-29]
+mydata_1_append_5 = as.matrix(mydata_1_append_5)
+binary1 = training_pCR_amend[[1]]
+length(binary1)
+
+
+tsp_cluster_1_5=SWAP.KTSP.Train(mydata_1_append_5, as.factor(binary1),krange=c(6) )
+print(tsp_cluster_1_5$TSPs)
+
+tsp_result_cluster_1_5 = SWAP.GetKTSP.Result(tsp_cluster_1_5, testing_pCR_XX_amend[[3]], as.factor(testing_pCR_amend[[3]]))
+tsp_result_cluster_1_5$stats["auc"]
+
+
+```
+
+```{r}
+
+#study 1 and test 3
+#study 9 and test 1
+#study 10 test 2
+#study 7 and test set #1
+
+#1
+mydata_7_append = subset(mydata_7, mydata_7$fit_7.cluster == 1)
+mydata_7_append = mydata_7_append[,-18]
+mydata_7_append = as.matrix(mydata_7_append)
+binary7 = training_pCR_amend[[7]]
+
+tsp_cluster_7_1=SWAP.KTSP.Train(mydata_7_append, as.factor(binary7), krange=c(6) )
+print(tsp_cluster_7_1$TSPs)
+
+tsp_result_cluster_7_1 = SWAP.GetKTSP.Result(tsp_cluster_7_1, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_cluster_7_1$stats["auc"]
+
+#2
+mydata_7_append_2 = subset(mydata_7, mydata_7$fit_7.cluster == 2)
+mydata_7_append_2 = mydata_7_append_2[,-18]
+mydata_7_append_2 = as.matrix(mydata_7_append_2)
+binary7 = training_pCR_amend[[7]]
+
+tsp_cluster_7_2=SWAP.KTSP.Train(mydata_7_append_2, as.factor(binary7), krange=c(6) )
+print(tsp_cluster_7_2$TSPs)
+
+tsp_result_cluster_7_2 = SWAP.GetKTSP.Result(tsp_cluster_7_2, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_cluster_7_2$stats["auc"]
+
+
+#3 ( BEST)
+mydata_7_append_3 = subset(mydata_7, mydata_7$fit_7.cluster == 3)
+mydata_7_append_3 = mydata_7_append_3[,-18]
+mydata_7_append_3 = as.matrix(mydata_7_append_3)
+binary7 = training_pCR_amend[[7]]
+
+tsp_cluster_7_3=SWAP.KTSP.Train(mydata_7_append_3, as.factor(binary7), krange=c(6) )
+print(tsp_cluster_7_3$TSPs)
+
+tsp_result_cluster_7_3 = SWAP.GetKTSP.Result(tsp_cluster_7_3, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_cluster_7_3$stats["auc"]
+
+#4
+mydata_7_append_4 = subset(mydata_7, mydata_7$fit_7.cluster == 4)
+mydata_7_append_4 = mydata_7_append_4[,-18]
+mydata_7_append_4 = as.matrix(mydata_7_append_4)
+binary7 = training_pCR_amend[[7]]
+
+tsp_cluster_7_4=SWAP.KTSP.Train(mydata_7_append_4, as.factor(binary7), krange=c(6) )
+print(tsp_cluster_7_4$TSPs)
+
+tsp_result_cluster_7_4 = SWAP.GetKTSP.Result(tsp_cluster_7_4, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_cluster_7_4$stats["auc"]
+
+
+#5
+mydata_7_append_5 = subset(mydata_7, mydata_7$fit_7.cluster == 5)
+mydata_7_append_5 = mydata_7_append_5[,-18]
+mydata_7_append_5= as.matrix(mydata_7_append_5)
+binary7 = training_pCR_amend[[7]]
+
+tsp_cluster_7_5=SWAP.KTSP.Train(mydata_7_append_5, as.factor(binary7), krange=c(6) )
+print(tsp_cluster_7_5$TSPs)
+
+tsp_result_cluster_7_5 = SWAP.GetKTSP.Result(tsp_cluster_7_5, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_cluster_7_5$stats["auc"]
+
+```
+
+```{r}
+#for both cluster 3 worked the best
+#learn more about cluster 3
+
+library(ggpubr)
+library(factoextra)
+fit_7$centers
+fit_7$size
+fit_1$centers
+fit_1$size
+
+fviz_cluster(fit_7, data = training_pCR_XX_amend[[7]], 
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+             )
+
+
+fviz_cluster(fit_1, data = training_pCR_XX_amend[[1]], 
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+             )
+
+sd(mydata_7_append_3)
+sd(mydata_7_append_4)
+sd(mydata_7_append_5)
+sd(mydata_7_append)
+sd(mydata_7_append_2)
+sd(mydata_1_append_3)
+sd(mydata_1_append_4)
+sd(mydata_1_append_5)
+sd(mydata_1_append)
+sd(mydata_1_append_2)
+
+
+mean(mydata_7_append_3)
+mean(mydata_7_append_4)
+mean(mydata_7_append_5)
+mean(mydata_7_append)
+mean(mydata_7_append_2)
+
+mean(mydata_1_append_3)
+mean(mydata_1_append_4)
+mean(mydata_1_append_5)
+mean(mydata_1_append)
+mean(mydata_1_append_2)
+
+
+```
+
+```{r}
+#study 9 and test 1
+#study 10 test 2
+
+
+#1
+mydata_9_append = subset(mydata_9, mydata_9$fit_9.cluster == 1)
+mydata_9_append = mydata_9_append[,-17]
+mydata_9_append = as.matrix(mydata_9_append)
+binary9 = training_pCR_amend[[9]]
+
+tsp_cluster_9_1=SWAP.KTSP.Train(mydata_9_append, as.factor(binary9), krange=c(6) )
+print(tsp_cluster_9_1$TSPs)
+
+tsp_result_cluster_9_1 = SWAP.GetKTSP.Result(tsp_cluster_9_1, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_cluster_9_1$stats["auc"]
+
+0.6346154
+
+#2
+ 
+mydata_9_append_2 = subset(mydata_9, mydata_9$fit_9.cluster == 2)
+mydata_9_append_2 = mydata_9_append_2[,-17]
+mydata_9_append_2 = as.matrix(mydata_9_append_2)
+binary9 = training_pCR_amend[[9]]
+
+tsp_cluster_9_2=SWAP.KTSP.Train(mydata_9_append_2, as.factor(binary9), krange=c(6) )
+print(tsp_cluster_9_2$TSPs)
+
+tsp_result_cluster_9_2 = SWAP.GetKTSP.Result(tsp_cluster_9_2, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_cluster_9_2$stats["auc"]
+0.6307692 
+
+
+#3 ( BEST)
+mydata_9_append_3 = subset(mydata_9, mydata_9$fit_9.cluster == 3)
+mydata_9_append_3 = mydata_9_append_3[,-17]
+mydata_9_append_3 = as.matrix(mydata_9_append_3)
+binary9 = training_pCR_amend[[9]]
+
+tsp_cluster_9_3=SWAP.KTSP.Train(mydata_9_append_3, as.factor(binary9), krange=c(6) )
+print(tsp_cluster_9_3$TSPs)
+
+tsp_result_cluster_9_3 = SWAP.GetKTSP.Result(tsp_cluster_9_3, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_cluster_9_3$stats["auc"]
+ 0.6461538
+
+#4
+mydata_9_append_4 = subset(mydata_9, mydata_9$fit_9.cluster == 4)
+mydata_9_append_4 = mydata_9_append_4[,-17]
+mydata_9_append_4 = as.matrix(mydata_9_append_4)
+binary9 = training_pCR_amend[[9]]
+
+tsp_cluster_9_4=SWAP.KTSP.Train(mydata_9_append_4, as.factor(binary9), krange=c(6) )
+print(tsp_cluster_9_4$TSPs)
+
+tsp_result_cluster_9_4 = SWAP.GetKTSP.Result(tsp_cluster_9_4, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_cluster_9_4$stats["auc"]
+0.6307692
+
+#5
+mydata_9_append_5 = subset(mydata_9, mydata_9$fit_9.cluster == 5)
+mydata_9_append_5 = mydata_9_append_5[,-17]
+mydata_9_append_5 = as.matrix(mydata_9_append_5)
+binary9 = training_pCR_amend[[9]]
+
+tsp_cluster_9_5=SWAP.KTSP.Train(mydata_9_append_5, as.factor(binary9), krange=c(6) )
+print(tsp_cluster_9_5$TSPs)
+
+tsp_result_cluster_9_5 = SWAP.GetKTSP.Result(tsp_cluster_9_5, testing_pCR_XX_amend[[1]], as.factor(testing_pCR_amend[[1]]))
+tsp_result_cluster_9_5$stats["auc"]
+0.5346154 
+```
+
